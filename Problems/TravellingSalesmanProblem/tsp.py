@@ -19,7 +19,6 @@ class TSPProblem(RKOEnvAbstract):
         super().__init__() # Initialize the abstract base class
         print(f"Generating a random TSP instance with {num_cities} cities.")
 
-        self.save_q_learning_report = False
         self.num_cities = num_cities
         self.instance_name = f"TSP_{num_cities}_cities"
         self.LS_type: str = 'Best'
@@ -171,7 +170,7 @@ if __name__ == "__main__":
     
 
     final_cost, final_solution, time_to_best = solver.solve(
-        time_total=60, 
+        time_total=10, 
         runs=1,
         vns=1, 
         ils=1,
