@@ -1,14 +1,9 @@
 import numpy as np
 import os
 import sys
-current_directory = os.path.dirname(os.path.abspath(__file__))
-parent_directory = os.path.dirname(current_directory)
-project_root_directory = os.path.dirname(parent_directory)
-sys.path.append(project_root_directory)
-from RKO import RKO
-from Environment import RKOEnvAbstract
-from LogStrategy import FileLogger
-from Plots import HistoryPlotter
+
+# Standard import assumed after package installation
+from rko import RKO, RKOEnvAbstract, FileLogger, HistoryPlotter
 
 class KnapsackProblem(RKOEnvAbstract):
     """
@@ -68,7 +63,7 @@ class KnapsackProblem(RKOEnvAbstract):
             'probMut': [0.005, 0.01]   
         }
 
-       
+        
         self.LNS_parameters = {
             'betaMin': [0.10],   
             'betaMax': [0.30],  
@@ -127,6 +122,7 @@ class KnapsackProblem(RKOEnvAbstract):
         return -total_profit
 
 if __name__ == "__main__":
+    current_directory = os.path.dirname(os.path.abspath(__file__))
     env = KnapsackProblem(os.path.join(current_directory,'kp50.txt'))
     logger = FileLogger(os.path.join(current_directory,'results.txt'), reset=True)
     solver = RKO(env, logger=logger)

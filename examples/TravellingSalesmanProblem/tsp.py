@@ -3,14 +3,10 @@ import os
 import sys
 import random
 from abc import ABC, abstractmethod
-current_directory = os.path.dirname(os.path.abspath(__file__))
-project_root_directory = os.path.dirname(os.path.dirname(current_directory))
-sys.path.append(project_root_directory)
-from RKO import RKO
-from Environment import RKOEnvAbstract, check_env
 import matplotlib.pyplot as plt
-from LogStrategy import FileLogger
-from Plots import HistoryPlotter
+
+# Standard import assumed after package installation
+from rko import RKO, RKOEnvAbstract, check_env, FileLogger, HistoryPlotter
 
 class TSPProblem(RKOEnvAbstract):
     """
@@ -77,7 +73,7 @@ class TSPProblem(RKOEnvAbstract):
             'probMut': [0.005, 0.01]   
         }
 
-       
+        
         self.LNS_parameters = {
             'betaMin': [0.10],   
             'betaMax': [0.30],  
@@ -159,6 +155,7 @@ class TSPProblem(RKOEnvAbstract):
 
 
 if __name__ == "__main__":
+    current_directory = os.path.dirname(os.path.abspath(__file__))
     
     # 1. Instantiate the problem environment.
     #    This will automatically generate a new TSP instance with 50 cities.

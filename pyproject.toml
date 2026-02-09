@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rko"
+version = "0.1.0"
+description = "A Python library for Random-Key Optimization (RKO)."
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+  { name = "Felipe Silvestre Cardoso Roberto", email = "???" },
+  { name = "João Assaoka", email = "joao.assaoka@unifesp.br" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Assaoka/RKO_Python"
+"Bug Tracker" = "https://github.com/Assaoka/RKO_Python/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]

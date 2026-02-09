@@ -10,7 +10,7 @@ import bisect
 import itertools
 from multiprocessing import Manager, Process, cpu_count
 
-from LogStrategy import LogStrategy, TerminalLogger, ParallelLogManager
+from .LogStrategy import LogStrategy, TerminalLogger, ParallelLogManager
 
 
 class SolutionPool:
