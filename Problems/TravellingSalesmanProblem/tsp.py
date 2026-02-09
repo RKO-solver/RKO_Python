@@ -9,6 +9,8 @@ sys.path.append(project_root_directory)
 from RKO import RKO
 from Environment import RKOEnvAbstract, check_env
 import matplotlib.pyplot as plt
+from LogStrategy import FileLogger
+from Plots import HistoryPlotter
 
 class TSPProblem(RKOEnvAbstract):
     """
@@ -23,6 +25,8 @@ class TSPProblem(RKOEnvAbstract):
         self.instance_name = f"TSP_{num_cities}_cities"
         self.LS_type: str = 'Best'
         self.dict_best: dict = {} # No known optimal for random instances
+
+        self.save_q_learning_report = False
 
         # Generate city coordinates and the distance matrix
         self.cities = self._generate_cities(num_cities)
@@ -161,14 +165,15 @@ if __name__ == "__main__":
     env = TSPProblem(num_cities=50)
     check_env(env)  # Verify the environment implementation
     
-    # 2. Instantiate the RKO solver, passing the environment.
+    # 2. Setup the logger
+    logger = FileLogger(os.path.join(current_directory, 'results.txt'), reset=True)
+
+    # 3. Instantiate the RKO solver, passing the environment.
     solver = RKO(
         env=env, 
-        print_best=True
-        
+        logger=logger
     )
     
-
     final_cost, final_solution, time_to_best = solver.solve(
         time_total=10, 
         runs=1,
@@ -178,6 +183,10 @@ if __name__ == "__main__":
     )
     
     solution = env.decoder(final_solution)
+    
+    # Plot the convergence
+    HistoryPlotter.plot_convergence(os.path.join(current_directory, 'results.txt'), run_number=1, title="TSP Convergence").show()
+
     env.plot_tour(solution, final_cost)
     print("\n" + "="*30)
     print("      FINAL RESULTS      ")

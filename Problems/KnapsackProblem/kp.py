@@ -131,3 +131,6 @@ if __name__ == "__main__":
     logger = FileLogger(os.path.join(current_directory,'results.txt'), reset=True)
     solver = RKO(env, logger=logger)
     solver.solve(time_total=30, brkga=1, lns=1, vns=1, ils=1, sa=1, pso=1, ga=1, runs=2)
+    
+    # Plot convergence for the first run
+    HistoryPlotter.plot_convergence(os.path.join(current_directory, 'results.txt'), run_number=1).show()
