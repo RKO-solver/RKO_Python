@@ -105,7 +105,7 @@ class RKO:
         Returns:
             tuple:
                 - q_manager (QLearningManager or None): Q-learning manager if adaptive control is enabled.
-                - params (dict): Initial parameters for the metaheuristic.
+                - params (dict): Initial parameters for the metaheuristic
         """
         is_online = any(len(v) > 1 for v in params_config.values())
 
