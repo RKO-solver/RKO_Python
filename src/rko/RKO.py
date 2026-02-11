@@ -237,7 +237,7 @@ class RKO:
             metaheuristic_name (str): The name of the calling metaheuristic (for logging).
 
         Returns:
-            list: The improved (or original) solution keys.
+            list: The improved (or original) solution keys
         """
         Farey_Squence = [0.00, 0.142857, 0.166667, 0.20, 0.25, 0.285714, 0.333333, 0.40, 0.428571, 0.50,
                              0.571429, 0.60, 0.666667, 0.714286, 0.75, 0.80, 0.833333, 0.857143, 1.0]
