@@ -1,5 +1,4 @@
 # RKO - RANDOM-KEY OPTIMIZER (PYTHON FRAMEWORK)
-
 ## 1. INTRODUCTION TO THE RANDOM-KEY OPTIMIZER (RKO)
 
 The Random-Key Optimizer (RKO) is a versatile and efficient metaheuristic framework designed for a wide range of combinatorial optimization problems. Its core paradigm is the encoding of solutions as vectors of random keys—real numbers uniformly distributed in the interval [0, 1). This representation maps the discrete, and often complex, search space of a combinatorial problem to a continuous n-dimensional unit hypercube.
@@ -7,6 +6,11 @@ The Random-Key Optimizer (RKO) is a versatile and efficient metaheuristic framew
 The primary strength of the RKO framework lies in its modular architecture, which decouples the search algorithms from the problem-specific logic. This is achieved through a problem-specific decoder, a user-defined function that translates a random-key vector into a feasible solution for the target problem.
 
 This design allows for the seamless integration of multiple classic metaheuristics (e.g., Simulated Annealing, Iterated Local Search, Genetic Algorithms) that can operate independently or in parallel. When executed concurrently, these algorithms share high-quality solutions through a common elite solution pool, fostering a collaborative and robust search process.
+
+You can download the package using pip:
+```bash
+pip install rko
+```
 
 ---
 
