@@ -51,6 +51,9 @@ nav:
     - Environment: reference/environment.md
     - LogStrategy: reference/logstrategy.md
     - Plots: reference/plots.md
+  - Tutorials:
+    - Knapsack Problem: tutorials/knapsack.md
+    - Travelling Salesperson Problem: tutorials/tsp.md
 
 markdown_extensions:
   - pymdownx.highlight:
