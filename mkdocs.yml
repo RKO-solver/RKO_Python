@@ -6,6 +6,8 @@ repo_name: RKO-solver/RKO_Python
 
 theme:
   name: material
+  logo: assets/logo.jpg
+  favicon: assets/favicon.png
   features:
     - navigation.tabs
     - navigation.sections
@@ -15,17 +17,20 @@ theme:
     - content.code.copy
   palette:
     - scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+
+extra_css:
+  - stylesheets/extra.css
 
 plugins:
   - search
@@ -46,3 +51,12 @@ nav:
     - Environment: reference/environment.md
     - LogStrategy: reference/logstrategy.md
     - Plots: reference/plots.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
