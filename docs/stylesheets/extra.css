@@ -1,0 +1,29 @@
+:root {
+  /* Cores principais baseadas no verde da UNIFESP (#225a37) */
+  --md-primary-fg-color:        #225a37;
+  --md-primary-fg-color--light: #347d4e;
+  --md-primary-fg-color--dark:  #13331f;
+  --md-primary-bg-color:        #ffffff;
+  --md-primary-bg-color--light: #ffffffcc;
+
+  /* Cores de destaque (accent) usando o mesmo verde */
+  --md-accent-fg-color:         #225a37;
+  --md-accent-fg-color--transparent: #225a37f2;
+  --md-accent-bg-color:         #ffffff;
+  --md-accent-bg-color--light:  #ffffffcc;
+}
+
+[data-md-color-scheme="slate"] {
+  /* Header verde no modo esculo com texto branco */
+  --md-primary-fg-color:        #225a37;
+  --md-primary-fg-color--light: #347d4e;
+  --md-primary-fg-color--dark:  #184529;
+  --md-primary-bg-color:        #ffffff;
+  --md-primary-bg-color--light: #ffffffcc;
+
+  /* Cor de destaque mais clara no escuro para melhor contraste */
+  --md-accent-fg-color:         #4ea86e;
+  --md-accent-fg-color--transparent: #4ea86e1a;
+  --md-accent-bg-color:         #000000;
+  --md-accent-bg-color--light:  #000000cc;
+}
