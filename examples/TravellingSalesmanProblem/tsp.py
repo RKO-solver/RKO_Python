@@ -5,7 +5,6 @@ import random
 from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
 
-# Standard import assumed after package installation
 from rko import RKO, RKOEnvAbstract, check_env, FileLogger, HistoryPlotter
 
 class TSPProblem(RKOEnvAbstract):

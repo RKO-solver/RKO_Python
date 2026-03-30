@@ -1,0 +1,3 @@
+# LogStrategy
+
+::: rko.LogStrategy
