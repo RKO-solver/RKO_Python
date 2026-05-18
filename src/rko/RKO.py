@@ -10,7 +10,8 @@ import bisect
 import itertools
 from multiprocessing import Manager, Process, cpu_count
 
-from .LogStrategy import LogStrategy, TerminalLogger, ParallelLogManager
+from .LogStrategy import LogStrategy, TerminalLogger, FileLogger, DualLogger, ParallelLogManager
+from .Environment import check_env
 
 
 class SolutionPool:
@@ -18,7 +19,7 @@ class SolutionPool:
     Manages a pool of candidate solutions and keeps track of the best solution found.
     """
 
-    def __init__(self, size, pool, best_pair, lock=None, logger: LogStrategy = None, Best=None, env=None):
+    def __init__(self, size, pool, best_pair, lock=None, logger: LogStrategy = None, Best=None, env=None, stop_event=None):
         """
         Initializes the solution pool.
 
@@ -30,6 +31,7 @@ class SolutionPool:
             logger (LogStrategy, optional): Logger for printing updates.
             Best (float, optional): Known best possible solution (if available).
             env (object, optional): Reference to the environment.
+            stop_event (Event, optional): Multiprocessing event to signal termination.
         """
         self.size = size
         self.pool = pool
@@ -39,6 +41,7 @@ class SolutionPool:
         self.logger = logger
         self.best_possible = Best
         self.env = env
+        self.stop_event = stop_event
 
     def insert(self, entry_tuple, metaheuristic_name, tag):
         """
@@ -51,47 +54,74 @@ class SolutionPool:
         """
         fitness = entry_tuple[0]
         keys = entry_tuple[1]
+        elapsed_time = round(time.time() - self.start_time, 2)
+
+        if self.logger:
+            self.logger.log(f'[info] {metaheuristic_name} trying to insert solution with fitness {fitness} into pool, the best solution is \033[32m{self.best_pair[0]}\033[0m, at time: {elapsed_time}s')
 
         with self.lock:
             if fitness < self.best_pair[0]:
                 self.best_pair[0] = fitness
                 self.best_pair[1] = list(keys)
-                self.best_pair[2] = round(time.time() - self.start_time, 2)
+                self.best_pair[2] = elapsed_time
 
                 if self.logger:
-                    if self.best_possible is not None:
-                        self.logger.log(f"{metaheuristic_name} NEW BEST: {fitness} - BEST: {self.best_possible} - "
-                              f"Time: {round(time.time() - self.start_time, 2)}s - {len(self.pool)}")
-                    else:
-                        self.logger.log(f"{metaheuristic_name} NEW BEST: {fitness} - "
-                              f"Time: {round(time.time() - self.start_time, 2)}s - {len(self.pool)}")
+                    self.logger.log(f"[best] {metaheuristic_name} | {fitness} | {elapsed_time} | {len(self.pool)}")
+                
+                # If target optimum is reached, trigger the shared stop_event immediately
+                if self.best_possible is not None and fitness <= self.best_possible:
+                    if self.stop_event is not None:
+                        self.stop_event.set()
 
             bisect.insort(self.pool, entry_tuple)
 
             if len(self.pool) > self.size:
                 self.pool.pop()
 
+
 class RKO:
     """
     Implements the Random-Key Optimizer (RKO) framework integrating multiple metaheuristics.
     """
 
-    def __init__(self, env, logger: LogStrategy | None = None):
+    def __init__(self, env, logger: str | LogStrategy | None = None, log_filepath: str | None = None, reset_log: bool = False):
         """
         Initializes the RKO optimizer.
 
         Args:
-            env (object): Problem environment, must provide solution size, local search type, and max execution time.
-            logger (LogStrategy | None): Logger strategy to use.
+            env (object): Problem environment, must provide solution size, local search type, etc.
+            logger (str | LogStrategy | None): Logger strategy instance or a tag string specifying the type ('terminal', 'file', 'dual', 'none').
+            log_filepath (str | None): File path for file-based loggers.
+            reset_log (bool): If True, resets the log file (creates/clears it).
         """
+        
         self.env = env
+        check_env(self.env, silent=True)
         self.__MAX_KEYS = self.env.tam_solution
         self.LS_type = self.env.LS_type
         self.start_time = time.time()
-        self.max_time = self.env.max_time
+        self.max_time = 0.0
         self.rate = 1
-        self.logger = logger
         self.q_managers = {}
+
+        # Configurar FileLogger (apenas para resultados finais) e TerminalLogger (para saída em tempo real e logs.txt)
+        self.log_filepath = log_filepath
+        self.reset_log = reset_log
+        self.file_logger = None
+
+        if isinstance(logger, LogStrategy):
+            self.logger = logger
+        elif self.log_filepath:
+            import os
+            self.file_logger = FileLogger(self.log_filepath, reset=self.reset_log)
+            log_dir = os.path.dirname(os.path.abspath(self.log_filepath))
+            logs_path = os.path.join(log_dir, 'logs.txt')
+            self.logger = TerminalLogger(logs_path, reset=self.reset_log)
+        else:
+            if isinstance(logger, str) and logger.lower() == 'none':
+                self.logger = None
+            else:
+                self.logger = TerminalLogger()
 
     def _setup_parameters(self, metaheuristic_name, params_config):
         """
@@ -115,7 +145,7 @@ class RKO:
                     parameters_config=params_config,
                     max_time=self.max_time,
                     metaheuristic_name=metaheuristic_name,
-                    save_report=self.env.save_q_learning_report
+                    save_report=getattr(self.env, 'save_q_learning_report', True)
                 )
             q_manager = self.q_managers[metaheuristic_name]
             initial_params = q_manager.get_current_parameters()
@@ -419,7 +449,7 @@ class RKO:
         max_iter = int(self.__MAX_KEYS * math.exp(-2))
 
         while iter_count <= (max_iter * self.rate):
-            if self.stop_condition(fitBest, metaheuristic_name, -1):
+            if self.stop_condition(fitBest, metaheuristic_name, -1, pool=pool):
                 return xBest
 
             shrink = 0
@@ -540,7 +570,7 @@ class RKO:
             else:
                 not_used_nb.remove(current_neighborhood)
 
-            if self.stop_condition(best_cost, metaheuristic_name, -1):
+            if self.stop_condition(best_cost, metaheuristic_name, -1, pool=pool):
                 return best_keys
         return best_keys
 
@@ -987,6 +1017,8 @@ class RKO:
 
         start_time = time.time()
         while time.time() - start_time < limit_time:
+            if self.stop_condition(best_fitness_overall, metaheuristic_name, tag, pool=pool):
+                return [], best_keys_overall, best_fitness_overall
             resize_pending = None
             if q_manager:
                 elapsed = time.time() - start_time
@@ -1018,7 +1050,7 @@ class RKO:
                     best_keys_overall = key
                     improvement_flag = 1
                     pool.insert((best_fitness_overall, list(best_keys_overall)), metaheuristic_name, tag)
-                if self.stop_condition(best_fitness_overall, metaheuristic_name, tag):
+                if self.stop_condition(best_fitness_overall, metaheuristic_name, tag, pool=pool):
                     return [], best_keys_overall, fitness
 
             if resize_pending is not None:
@@ -1155,6 +1187,8 @@ class RKO:
         start_time = time.time()
         num_generations = 0
         while time.time() - start_time < limit_time:
+            if self.stop_condition(best_fitness_overall, metaheuristic_name, tag, pool=pool):
+                return [], best_keys_overall, best_fitness_overall
             num_generations += 1
             if q_manager:
                 current_time = time.time() - self.start_time
@@ -1261,20 +1295,48 @@ class RKO:
                 self.logger.log(f"{metaheuristic_name}: FINISHED")
             return True
         
-        if pool is not None and self.env.dict_best is not None and self.env.instance_name in self.env.dict_best:
-            if pool.best_pair[0] == self.env.dict_best[self.env.instance_name]:
-                if self.logger:
-                    self.logger.log(f"Best known solution found: {pool.best_pair[0]}")
+        # Check if stop event has been signaled
+        if pool is not None and getattr(pool, 'stop_event', None) is not None:
+            if pool.stop_event.is_set():
+                return True
+        
+        # Robust lookup of the best known value from dict_best
+        target_value = None
+        if getattr(self.env, 'dict_best', None) is not None:
+            dict_best = self.env.dict_best
+            inst_name = getattr(self.env, 'instance_name', '')
+            
+            # 1. Direct lookup
+            if inst_name in dict_best:
+                target_value = dict_best[inst_name]
+            else:
+                # 2. OS-agnostic basename lookup
+                import os
+                base_name = os.path.basename(inst_name)
+                if base_name in dict_best:
+                    target_value = dict_best[base_name]
+                # 3. Fallback to "Best" key
+                elif "Best" in dict_best:
+                    target_value = dict_best["Best"]
+                # 4. Fallback to the first value in the dictionary
+                elif len(dict_best) > 0:
+                    target_value = list(dict_best.values())[0]
+
+            # Flatten list/tuple if stored as a list
+            if isinstance(target_value, (list, tuple)) and len(target_value) > 0:
+                target_value = target_value[0]
+
+        # Evaluate target threshold
+        if target_value is not None:
+            if pool is not None and pool.best_pair[0] == target_value:
+                return True
+            
+            if best_cost == target_value:
                 return True
 
-        if self.env.dict_best is not None and self.env.instance_name in self.env.dict_best:
-            if best_cost == self.env.dict_best[self.env.instance_name]:
-                if self.logger:
-                    self.logger.log(f"Metaheuristic {metaheuristic_name} found the best solution: {best_cost}")
-                return True
         return False
 
-    def solve(self, time_total, brkga=0, ms=0, sa=0, vns=0, ils=0, lns=0, pso=0, ga=0, restart=1, runs=1):
+    def solve(self, time_total: float, brkga: int = 0, ms: int = 0, sa: int = 0, vns: int = 0, ils: int = 0, lns: int = 0, pso: int = 0, ga: int = 0, restart: float = 1.0, runs: int = 1, plot: bool = False) -> tuple[float, list[float], float]:
         """
         Main execution method to run the RKO framework with parallel metaheuristics.
 
@@ -1290,10 +1352,46 @@ class RKO:
             ga (int): Number of parallel GA instances.
             restart (float): Fraction of total time for each restart cycle.
             runs (int): Number of times to repeat the entire experiment.
+            plot (bool): If True, plots convergence history for each run and saves it as an image.
 
         Returns:
             tuple: The final best cost, solution keys, and the time at which it was found.
         """
+
+        # Configurar pasta de resultados dinâmica (results_instance_time) se um log_filepath foi configurado ou se plot=True
+        output_dir = None
+        if self.log_filepath:
+            import datetime
+            import os
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+            instance_base = os.path.splitext(self.env.instance_name)[0]
+            folder_name = f"results_{instance_base}_{timestamp}"
+            base_dir = os.path.dirname(os.path.abspath(self.log_filepath))
+            output_dir = os.path.join(base_dir, folder_name)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            self.log_filepath = os.path.join(output_dir, 'results.txt')
+            logs_filepath = os.path.join(output_dir, 'logs.txt')
+            
+            self.file_logger = FileLogger(self.log_filepath, reset=True)
+            self.logger = TerminalLogger(logs_filepath, reset=True)
+        elif plot:
+            import datetime
+            import os
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+            instance_base = os.path.splitext(self.env.instance_name)[0]
+            folder_name = f"results_{instance_base}_{timestamp}"
+            output_dir = os.path.join(os.path.abspath("."), folder_name)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            self.log_filepath = os.path.join(output_dir, 'results.txt')
+            logs_filepath = os.path.join(output_dir, 'logs.txt')
+            
+            self.file_logger = FileLogger(self.log_filepath, reset=True)
+            self.logger = TerminalLogger(logs_filepath, reset=True)
+
+        check_env(self.env, time_total=time_total, brkga=brkga, ms=ms, sa=sa, vns=vns, ils=ils, lns=lns, pso=pso, ga=ga, restart=restart, runs=runs)
+
         solutions = []
         times = []
         costs = []
@@ -1318,28 +1416,47 @@ class RKO:
                 shared = manager.Namespace()
                 shared.best_pair = manager.list([float('inf'), None, None])
                 shared.best_pool = manager.list()
+                stop_event = manager.Event()
                 
-                # Usar worker_logger no SolutionPool
-                shared.pool = SolutionPool(20, shared.best_pool, shared.best_pair, lock=manager.Lock(), logger=worker_logger, Best=self.env.dict_best.get(self.env.instance_name), env=self.env)
-                
-                for _ in range(20):
-                    keys = self.random_keys()
-                    cost = self.env.cost(self.env.decoder(keys))
-                    shared.pool.insert((cost, list(keys)), 'pool', -1)
+                # Robust target lookup for pool initialization
+                target_value = None
+                if getattr(self.env, 'dict_best', None) is not None:
+                    dict_best = self.env.dict_best
+                    inst_name = getattr(self.env, 'instance_name', '')
+                    if inst_name in dict_best:
+                        target_value = dict_best[inst_name]
+                    else:
+                        import os
+                        base_name = os.path.basename(inst_name)
+                        if base_name in dict_best:
+                            target_value = dict_best[base_name]
+                        elif "Best" in dict_best:
+                            target_value = dict_best["Best"]
+                        elif len(dict_best) > 0:
+                            target_value = list(dict_best.values())[0]
+                    if isinstance(target_value, (list, tuple)) and len(target_value) > 0:
+                        target_value = target_value[0]
 
+                # Usar worker_logger no SolutionPool
+                pool = SolutionPool(20, shared.best_pool, shared.best_pair, lock=manager.Lock(), logger=worker_logger, Best=target_value, env=self.env, stop_event=stop_event)
+                
                 processes = []
                 for k in range(restarts):
                     tag = 0
                     self.start_time = time.time()
-                    if self.stop_condition(shared.pool.best_pair[0], 'RKO', tag, pool=shared.pool):
+                    if self.stop_condition(pool.best_pair[0], 'RKO', tag, pool=pool):
                         break
 
-
-                    shared.pool.pool = manager.list()
+                    # Clear and populate the pool population to prevent empty pool race conditions
+                    pool.pool = manager.list()
+                    for _ in range(20):
+                        keys = self.random_keys()
+                        cost = self.env.cost(self.env.decoder(keys))
+                        pool.insert((cost, list(keys)), 'pool', -1)
                     for _ in range(brkga):
                         p = Process(
                             target=_brkga_worker,
-                            args=(self.env, shared.pool, tag, worker_logger)
+                            args=(self.env, self.max_time, pool, tag, worker_logger)
                         )
                         tag += 1
                         processes.append(p)
@@ -1347,7 +1464,7 @@ class RKO:
                     for _ in range(ms):
                         p = Process(
                             target=_MS_worker,
-                            args=(self.env, shared.pool, tag, worker_logger)
+                            args=(self.env, self.max_time, pool, tag, worker_logger)
                         )
                         tag += 1
                         processes.append(p)
@@ -1355,7 +1472,7 @@ class RKO:
                     for _ in range(sa):
                         p = Process(
                             target=_SA_worker,
-                            args=(self.env,  shared.pool, tag, worker_logger)
+                            args=(self.env, self.max_time, pool, tag, worker_logger)
                         )
                         tag += 1
                         processes.append(p)
@@ -1363,7 +1480,7 @@ class RKO:
                     for _ in range(vns):
                         p = Process(
                             target=_VNS_worker,
-                            args=(self.env, self.max_time, shared.pool, tag, worker_logger)
+                            args=(self.env, self.max_time, pool, tag, worker_logger)
                         )
                         tag += 1
                         processes.append(p)
@@ -1371,7 +1488,7 @@ class RKO:
                     for _ in range(ils):
                         p = Process(
                             target=_ILS_worker,
-                            args=(self.env, self.max_time, shared.pool, tag, worker_logger)
+                            args=(self.env, self.max_time, pool, tag, worker_logger)
                         )
                         tag += 1
                         processes.append(p)
@@ -1380,7 +1497,7 @@ class RKO:
                     for _ in range(lns):
                         p = Process(
                             target=_LNS_worker,
-                            args=(self.env, self.max_time, shared.pool, tag, worker_logger)
+                            args=(self.env, self.max_time, pool, tag, worker_logger)
                         )
                         tag += 1
                         processes.append(p)
@@ -1389,7 +1506,7 @@ class RKO:
                     for _ in range(pso):
                         p = Process(
                             target=_PSO_worker,
-                            args=(self.env, shared.pool , tag, worker_logger)
+                            args=(self.env, self.max_time, pool, tag, worker_logger)
                         )
                         tag += 1
                         processes.append(p)
@@ -1398,32 +1515,73 @@ class RKO:
                     for _ in range(ga):
                         p = Process(
                             target=_GA_worker,
-                            args=(self.env, shared.pool , tag, worker_logger)
+                            args=(self.env, self.max_time, pool, tag, worker_logger)
                         )
                         tag += 1
                         processes.append(p)
                         p.start()
 
-                    for p in processes:
-                        p.join(timeout=self.max_time)
-                    
+                    # Monitor processes and check for early termination via stop_event
+                    start_wait = time.time()
+                    while time.time() - start_wait < self.max_time:
+                        if all(not p.is_alive() for p in processes):
+                            break
+                        if stop_event.is_set():
+                            break
+                        time.sleep(0.05)
+
                     for p in processes:
                         if p.is_alive():
-                            if self.logger:
+                            if self.logger and not stop_event.is_set():
                                 self.logger.log(f"Process {p.pid} timed out and will be terminated.")
                             p.terminate()
+                            p.join()
 
-                cost = shared.pool.best_pair[0]
-                solution = shared.pool.best_pair[1]
-                time_elapsed = shared.pool.best_pair[2]
+                cost = pool.best_pair[0]
+                solution = pool.best_pair[1]
+                time_elapsed = pool.best_pair[2]
 
                 solutions.append(solution)
                 costs.append(round(cost, 2))
                 times.append(round(time_elapsed, 2))
+
+                # Plotar e salvar a imagem da convergência desta run se plot=True
+                if plot and output_dir:
+                    logs_filepath = getattr(self.logger, 'logs_filepath', None)
+                    if logs_filepath and os.path.exists(logs_filepath):
+                        # Garantir que a fila de logs assíncrona foi processada e escrita no logs.txt antes de plotar
+                        if log_manager:
+                            time.sleep(0.1)
+                        
+                        import matplotlib
+                        matplotlib.use('Agg') # Switch to non-interactive backend safely
+                        try:
+                            import matplotlib.pyplot as plt
+                            from rko.Plots import HistoryPlotter
+                            fig = HistoryPlotter.plot_convergence(
+                                logs_filepath, 
+                                run_number=i+1, 
+                                title=f"Convergence History - {self.env.instance_name} (Run {i+1})"
+                            )
+                            fig.savefig(os.path.join(output_dir, f"run_{i+1}.png"), dpi=150)
+                            plt.close(fig)
+                        except Exception as plot_err:
+                            if self.logger:
+                                self.logger.log(f"Warning: Failed to plot convergence for run {i+1}: {plot_err}")
                 
+            # Salvar no results (file_logger) apenas os dados agregados ao final de todas as runs
+            if getattr(self, 'file_logger', None) is not None:
+                avg_cost = round(sum(costs)/len(costs), 2)
+                best_cost = min(costs)
+                avg_time = round(sum(times)/len(times), 2)
+                summary = f"{self.env.instance_name}, {avg_cost}, {best_cost}, {costs}, {avg_time}, {times}"
+                self.file_logger.log(summary)
+
+            # Logar no terminal / logs.txt do mesmo diretório
             if self.logger:
-                summary = f'{time_total}, {self.env.instance_name}, {round(sum(costs)/len(costs),2)}, {costs}, {round(sum(times)/len(times),2)}, {times}'
-                self.logger.log(summary)
+                best_cost = min(costs)
+                best_time = times[costs.index(best_cost)]
+                self.logger.log(f"{self.env.instance_name}, {best_cost}, {best_time}")
 
             return cost, solution, time_elapsed
 
@@ -1431,40 +1589,49 @@ class RKO:
             if log_manager:
                 log_manager.stop()
 
-def _brkga_worker(env, pool, tag, logger):
+def _brkga_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
+    runner.max_time = limit_time
     _, local_keys, local_best = runner.BRKGA(tag, pool)
     
-def _MS_worker(env, pool, tag, logger):
+def _MS_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
+    runner.max_time = limit_time
     _, local_keys, local_best = runner.MultiStart(tag, pool)
     
-def _GRASP_worker(env, pool, tag, logger):
+def _GRASP_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
+    runner.max_time = limit_time
     _, local_keys, local_best = runner.MultiStart(pool)
     
 def _VNS_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
+    runner.max_time = limit_time
     _, local_keys, local_best = runner.VNS(limit_time, tag, pool)
     
-def _ILS_worker(env, limit_time,  pool, tag, logger):
+def _ILS_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
+    runner.max_time = limit_time
     _, local_keys, local_best = runner.ILS(limit_time, tag, pool)
     
-def _SA_worker(env, pool, tag, logger):
+def _SA_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
+    runner.max_time = limit_time
     _, local_keys, local_best = runner.SimulatedAnnealing(tag=tag, pool=pool)
     
 def _LNS_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
+    runner.max_time = limit_time
     _, local_keys, local_best = runner.LNS(limit_time=limit_time, tag=tag, pool=pool)
     
-def _PSO_worker(env, pool, tag, logger):
+def _PSO_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
+    runner.max_time = limit_time
     _, local_keys, local_best = runner.PSO(tag=tag, pool=pool)
     
-def _GA_worker(env, pool, tag, logger):
+def _GA_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
+    runner.max_time = limit_time
     _, local_keys, local_best = runner.GA(tag=tag, pool=pool)
 
 
