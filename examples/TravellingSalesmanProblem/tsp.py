@@ -5,16 +5,17 @@ import random
 from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
 
-# Standard import assumed after package installation
-from rko import RKO, RKOEnvAbstract, check_env, FileLogger, HistoryPlotter
+# Ensure the 'src' directory is in the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
 
-class TSPProblem(RKOEnvAbstract):
+from rko import RKO, check_env, DualLogger, HistoryPlotter
+
+class TSPProblem:
     """
     An implementation of the Traveling Salesperson Problem (TSP) environment for the RKO solver.
     This class generates a random instance upon initialization.
     """
     def __init__(self, num_cities: int = 20):
-        super().__init__() # Initialize the abstract base class
         print(f"Generating a random TSP instance with {num_cities} cities.")
 
         self.num_cities = num_cities
@@ -33,7 +34,7 @@ class TSPProblem(RKOEnvAbstract):
 
         # You can customize the parameters for each metaheuristic here
         self.BRKGA_parameters = {
-            'p': [100, 50],          
+            'p': [100, 60, 80, 50],          
             'pe': [0.20, 0.15],      
             'pm': [0.05],        
             'rhoe': [0.70]       
@@ -163,7 +164,7 @@ if __name__ == "__main__":
     check_env(env)  # Verify the environment implementation
     
     # 2. Setup the logger
-    logger = FileLogger(os.path.join(current_directory, 'results.txt'), reset=True)
+    logger = DualLogger(os.path.join(current_directory, 'results.txt'), reset=True)
 
     # 3. Instantiate the RKO solver, passing the environment.
     solver = RKO(
@@ -172,7 +173,7 @@ if __name__ == "__main__":
     )
     
     final_cost, final_solution, time_to_best = solver.solve(
-        time_total=10, 
+        time_total=30, 
         runs=1,
         vns=1, 
         ils=1,

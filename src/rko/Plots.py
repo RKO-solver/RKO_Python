@@ -23,25 +23,34 @@ class HistoryPlotter:
         """
         data = []
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
         except FileNotFoundError:
             print(f"File not found: {file_path}")
             return []
 
-        # Regex to match log formats in RKO.py, e.g.:
-        # "SA 0 NEW BEST: 123.45 - BEST: 100.0 - Time: 10.0s - 50"
-        # or "SA 0 NEW BEST: 123.45 - Time: 10.0s - 50"
-        pattern = re.compile(
-            r"(?P<metaheuristic>.*?) NEW BEST: (?P<fitness>[-]?[\d\.]+)(?: - BEST: [\d\.]+)? - Time: (?P<time>[\d\.]+)s"
+        # Regexes for both old and new log formats
+        pattern_old = re.compile(
+            r"(?P<metaheuristic>.*?) NEW BEST: (?P<fitness>[-]?[\d\.]+)(?: - BEST: [-]?[\d\.]+)? - Time: (?P<time>[\d\.]+)s"
         )
+        pattern_new = re.compile(
+            r"\[best\] (?P<metaheuristic>.*?) find a solution with fitness (?P<fitness>[-]?[\d\.]+).*?time: (?P<time>[\d\.]+)s"
+        )
+        ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
 
         run_count = 1
         last_time = 0.0
 
         for line in lines:
-            if "NEW BEST" in line:
-                match = pattern.search(line)
+            # Remove ANSI colors
+            clean_line = ansi_escape.sub('', line)
+            
+            # Check old or new best markers
+            if "NEW BEST" in clean_line or "[best]" in clean_line:
+                match = pattern_new.search(clean_line)
+                if not match:
+                    match = pattern_old.search(clean_line)
+                
                 if match:
                     meta_name = match.group("metaheuristic").strip()
                     fitness = float(match.group("fitness"))

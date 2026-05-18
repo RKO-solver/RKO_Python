@@ -12,10 +12,51 @@ class LogStrategy(ABC):
 
 # === Estratégias Concretas ===
 class TerminalLogger(LogStrategy):
-    """Escreve apenas no terminal."""
+    """Escreve no terminal E opcionalmente em logs.txt."""
+    def __init__(self, logs_filepath: str | None = None, reset: bool = False):
+        self.logs_filepath = logs_filepath
+        if self.logs_filepath and reset:
+            with open(self.logs_filepath, 'w', encoding='utf-8') as f:
+                f.write(f"--- Log Started at {datetime.now().strftime('%d/%m/%Y %H:%M')} ---\n")
+
     def log(self, *args: list[any], **kwargs: dict[str, any]):
-        # flush=True é vital em multiprocessing para não bufferizar a saída
-        print(*args, **kwargs, flush=True)
+        msg = " ".join(str(arg) for arg in args)
+        
+        if msg.startswith("[info]"):
+            # Print para o terminal (onde o best_pair[0] já vem em verde)
+            print(msg, **kwargs, flush=True)
+            return
+            
+        if msg.startswith("[best]"):
+            try:
+                parts = msg.split(" | ")
+                metaheuristic_name = parts[0].replace("[best] ", "").strip()
+                fitness = parts[1].strip()
+                elapsed_time = parts[2].strip()
+                pool_len = parts[3].strip()
+                
+                # Terminal: print beautiful green [best] message
+                term_msg = f"\033[32m[best] {metaheuristic_name} find a solution with fitness {fitness}, is the new best solution! time: {elapsed_time}s\033[0m"
+                print(term_msg, **kwargs, flush=True)
+                
+                # File: write clean old-school format (without colors)
+                if self.logs_filepath:
+                    file_msg = f"{metaheuristic_name} NEW BEST: {fitness} - Time: {elapsed_time}s - {pool_len}"
+                    with open(self.logs_filepath, 'a', encoding='utf-8') as f:
+                        print(file_msg, file=f, flush=True)
+            except Exception:
+                # Fallback em caso de falha no parse
+                print(msg, **kwargs, flush=True)
+                if self.logs_filepath:
+                    with open(self.logs_filepath, 'a', encoding='utf-8') as f:
+                        print(msg, file=f, flush=True)
+            return
+            
+        # Qualquer outro tipo de log (cabeçalhos, rodapés, etc.)
+        print(msg, **kwargs, flush=True)
+        if self.logs_filepath:
+            with open(self.logs_filepath, 'a', encoding='utf-8') as f:
+                print(msg, file=f, flush=True)
 
 class FileLogger(LogStrategy):
     """Escreve apenas em arquivo."""
@@ -23,7 +64,7 @@ class FileLogger(LogStrategy):
         self.filepath = filepath
         if reset:
             with open(self.filepath, 'w') as f:
-                f.write(f"--- Log Iniciado em {datetime.now()} ---\n")
+                f.write(f"--- Log Started at {datetime.now().strftime('%d/%m/%Y %H:%M')} ---\n")
 
     def log(self, *args: list[any], **kwargs: dict[str, any]):
         with open(self.filepath, 'a') as f:
