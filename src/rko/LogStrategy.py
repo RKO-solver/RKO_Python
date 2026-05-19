@@ -201,7 +201,7 @@ class ParallelLogManager:
             time.sleep(0.05)
 
 # === Adaptador para os Workers ===
-class WorkerLogger:
+class WorkerLogger(LogStrategy):
     """
     Proxy logger passed to worker processes to offload log actions to the main queue.
     """

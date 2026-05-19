@@ -19,7 +19,7 @@ class SolutionPool:
     Manages a pool of candidate solutions and keeps track of the best solution found.
     """
 
-    def __init__(self, size, pool, best_pair, lock=None, logger: LogStrategy = None, Best=None, env=None, stop_event=None):
+    def __init__(self, size, pool, best_pair, lock=None, logger: LogStrategy = None, Best=None, env=None, stop_event=None, history=None):
         """
         Initializes the solution pool.
 
@@ -32,6 +32,7 @@ class SolutionPool:
             Best (float, optional): Known best possible solution (if available).
             env (object, optional): Reference to the environment.
             stop_event (Event, optional): Multiprocessing event to signal termination.
+            history (list, optional): Shared list for convergence history.
         """
         self.size = size
         self.pool = pool
@@ -42,6 +43,7 @@ class SolutionPool:
         self.best_possible = Best
         self.env = env
         self.stop_event = stop_event
+        self.history = history
 
     def insert(self, entry_tuple, metaheuristic_name, tag):
         """
@@ -60,13 +62,22 @@ class SolutionPool:
             self.logger.log(f'[info] {metaheuristic_name} trying to insert solution with fitness {fitness} into pool, the best solution is \033[32m{self.best_pair[0]}\033[0m, at time: {elapsed_time}s')
 
         with self.lock:
+            # OTIMIZAÇÃO CRÍTICA: Se o pool já está cheio e a solução atual é pior ou igual
+            # à pior solução do pool, evitamos qualquer escrita e ordenação via IPC.
+            pool_len = len(self.pool)
+            if pool_len >= self.size and fitness >= self.pool[-1][0]:
+                return
+
             if fitness < self.best_pair[0]:
                 self.best_pair[0] = fitness
                 self.best_pair[1] = list(keys)
                 self.best_pair[2] = elapsed_time
 
                 if self.logger:
-                    self.logger.log(f"[best] {metaheuristic_name} | {fitness} | {elapsed_time} | {len(self.pool)}")
+                    self.logger.log(f"[best] {metaheuristic_name} | {fitness} | {elapsed_time} | {pool_len}")
+                
+                if self.history is not None:
+                    self.history.append((metaheuristic_name, fitness, elapsed_time))
                 
                 # If target optimum is reached, trigger the shared stop_event immediately
                 if self.best_possible is not None and fitness <= self.best_possible:
@@ -111,15 +122,31 @@ class RKO:
 
         if isinstance(logger, LogStrategy):
             self.logger = logger
-        elif self.log_filepath:
-            import os
-            self.file_logger = FileLogger(self.log_filepath, reset=self.reset_log)
-            log_dir = os.path.dirname(os.path.abspath(self.log_filepath))
-            logs_path = os.path.join(log_dir, 'logs.txt')
-            self.logger = TerminalLogger(logs_path, reset=self.reset_log)
         else:
-            if isinstance(logger, str) and logger.lower() == 'none':
+            logger_str = logger.lower() if isinstance(logger, str) else None
+            if logger_str == 'none':
                 self.logger = None
+            elif logger_str == 'file':
+                if not self.log_filepath:
+                    raise ValueError("log_filepath must be provided when logger='file'")
+                self.file_logger = FileLogger(self.log_filepath, reset=self.reset_log)
+                self.logger = None
+            elif logger_str == 'dual':
+                if not self.log_filepath:
+                    raise ValueError("log_filepath must be provided when logger='dual'")
+                import os
+                self.file_logger = FileLogger(self.log_filepath, reset=self.reset_log)
+                log_dir = os.path.dirname(os.path.abspath(self.log_filepath))
+                logs_path = os.path.join(log_dir, 'logs.txt')
+                self.logger = TerminalLogger(logs_path, reset=self.reset_log)
+            elif logger_str == 'terminal':
+                self.logger = TerminalLogger(self.log_filepath, reset=self.reset_log) if self.log_filepath else TerminalLogger()
+            elif self.log_filepath:
+                import os
+                self.file_logger = FileLogger(self.log_filepath, reset=self.reset_log)
+                log_dir = os.path.dirname(os.path.abspath(self.log_filepath))
+                logs_path = os.path.join(log_dir, 'logs.txt')
+                self.logger = TerminalLogger(logs_path, reset=self.reset_log)
             else:
                 self.logger = TerminalLogger()
 
@@ -421,10 +448,14 @@ class RKO:
             x2 = self.random_keys()
             x3 = self.random_keys()
         else:
-            x2 = random.sample(list(pool.pool), 1)[0][1]
-            x3 = random.sample(list(pool.pool), 1)[0][1]
-            while x2 == x3:
-                x2 = random.sample(list(pool.pool), 1)[0][1]
+            pool_list = list(pool.pool)
+            if len(pool_list) < 2:
+                x2 = self.random_keys()
+                x3 = self.random_keys()
+            else:
+                samples = random.sample(pool_list, 2)
+                x2 = samples[0][1]
+                x3 = samples[1][1]
 
         fit1 = self.env.cost(self.env.decoder(x1))
         fit2 = self.env.cost(self.env.decoder(x2))
@@ -1068,8 +1099,12 @@ class RKO:
             elite_keys = [item[0] for item in evaluated_population[:tam_elite]] if tam_elite > 0 else []
             new_population = elite_keys[:1] if elite_keys else []
 
+            # OTIMIZAÇÃO CRÍTICA: Faz cache da lista do pool uma única vez por geração,
+            # reduzindo o overhead IPC de ~50 leituras síncronas por geração para apenas 1!
+            pool_list = list(pool.pool) if pool is not None else []
+
             while len(new_population) < pop_size:
-                parent1 = random.choice(list(pool.pool))[1] if random.random() < 0.5 and len(pool.pool) > 0 else random.choice(population)
+                parent1 = random.choice(pool_list)[1] if random.random() < 0.5 and pool_list else random.choice(population)
                 parent2 = random.choice(elite_keys) if len(elite_keys) > 0 else random.choice(population)
                 child = np.zeros(self.__MAX_KEYS)
                 for i in range(len(child)):
@@ -1360,35 +1395,36 @@ class RKO:
 
         # Configurar pasta de resultados dinâmica (results_instance_time) se um log_filepath foi configurado ou se plot=True
         output_dir = None
-        if self.log_filepath:
+        if self.log_filepath or plot:
             import datetime
             import os
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
             instance_base = os.path.splitext(self.env.instance_name)[0]
             folder_name = f"results_{instance_base}_{timestamp}"
-            base_dir = os.path.dirname(os.path.abspath(self.log_filepath))
+            
+            if self.log_filepath:
+                base_dir = os.path.dirname(os.path.abspath(self.log_filepath))
+            else:
+                base_dir = os.path.abspath(".")
+                
             output_dir = os.path.join(base_dir, folder_name)
             os.makedirs(output_dir, exist_ok=True)
             
             self.log_filepath = os.path.join(output_dir, 'results.txt')
             logs_filepath = os.path.join(output_dir, 'logs.txt')
             
-            self.file_logger = FileLogger(self.log_filepath, reset=True)
-            self.logger = TerminalLogger(logs_filepath, reset=True)
-        elif plot:
-            import datetime
-            import os
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-            instance_base = os.path.splitext(self.env.instance_name)[0]
-            folder_name = f"results_{instance_base}_{timestamp}"
-            output_dir = os.path.join(os.path.abspath("."), folder_name)
-            os.makedirs(output_dir, exist_ok=True)
+            if self.file_logger is not None or plot:
+                self.file_logger = FileLogger(self.log_filepath, reset=True)
             
-            self.log_filepath = os.path.join(output_dir, 'results.txt')
-            logs_filepath = os.path.join(output_dir, 'logs.txt')
-            
-            self.file_logger = FileLogger(self.log_filepath, reset=True)
-            self.logger = TerminalLogger(logs_filepath, reset=True)
+            # Atualizar a estratégia de logs baseado no tipo previamente configurado
+            if self.logger is None:
+                pass
+            elif isinstance(self.logger, DualLogger):
+                self.logger = DualLogger(logs_filepath, reset=True)
+            elif isinstance(self.logger, FileLogger):
+                self.logger = FileLogger(logs_filepath, reset=True)
+            elif isinstance(self.logger, TerminalLogger):
+                self.logger = TerminalLogger(logs_filepath, reset=True)
 
         check_env(self.env, time_total=time_total, brkga=brkga, ms=ms, sa=sa, vns=vns, ils=ils, lns=lns, pso=pso, ga=ga, restart=restart, runs=runs)
 
@@ -1398,7 +1434,7 @@ class RKO:
 
         # Configurar o Logger Paralelo
         log_manager = None
-        worker_logger = None
+        worker_logger = 'none'
         if self.logger:
              log_manager = ParallelLogManager(self.logger)
              log_manager.start()
@@ -1416,6 +1452,7 @@ class RKO:
                 shared = manager.Namespace()
                 shared.best_pair = manager.list([float('inf'), None, None])
                 shared.best_pool = manager.list()
+                shared.history = manager.list() if plot else None
                 stop_event = manager.Event()
                 
                 # Robust target lookup for pool initialization
@@ -1438,7 +1475,8 @@ class RKO:
                         target_value = target_value[0]
 
                 # Usar worker_logger no SolutionPool
-                pool = SolutionPool(20, shared.best_pool, shared.best_pair, lock=manager.Lock(), logger=worker_logger, Best=target_value, env=self.env, stop_event=stop_event)
+                pool_logger = None if worker_logger == 'none' else worker_logger
+                pool = SolutionPool(20, shared.best_pool, shared.best_pair, lock=manager.Lock(), logger=pool_logger, Best=target_value, env=self.env, stop_event=stop_event, history=shared.history)
                 
                 processes = []
                 for k in range(restarts):
@@ -1547,27 +1585,21 @@ class RKO:
 
                 # Plotar e salvar a imagem da convergência desta run se plot=True
                 if plot and output_dir:
-                    logs_filepath = getattr(self.logger, 'logs_filepath', None)
-                    if logs_filepath and os.path.exists(logs_filepath):
-                        # Garantir que a fila de logs assíncrona foi processada e escrita no logs.txt antes de plotar
-                        if log_manager:
-                            time.sleep(0.1)
-                        
-                        import matplotlib
-                        matplotlib.use('Agg') # Switch to non-interactive backend safely
-                        try:
-                            import matplotlib.pyplot as plt
-                            from rko.Plots import HistoryPlotter
-                            fig = HistoryPlotter.plot_convergence(
-                                logs_filepath, 
-                                run_number=i+1, 
-                                title=f"Convergence History - {self.env.instance_name} (Run {i+1})"
-                            )
-                            fig.savefig(os.path.join(output_dir, f"run_{i+1}.png"), dpi=150)
-                            plt.close(fig)
-                        except Exception as plot_err:
-                            if self.logger:
-                                self.logger.log(f"Warning: Failed to plot convergence for run {i+1}: {plot_err}")
+                    import matplotlib
+                    matplotlib.use('Agg') # Switch to non-interactive backend safely
+                    try:
+                        import matplotlib.pyplot as plt
+                        from rko.Plots import HistoryPlotter
+                        fig = HistoryPlotter.plot_convergence(
+                            list(shared.history), 
+                            run_number=i+1, 
+                            title=f"Convergence History - {self.env.instance_name} (Run {i+1})"
+                        )
+                        fig.savefig(os.path.join(output_dir, f"run_{i+1}.png"), dpi=150)
+                        plt.close(fig)
+                    except Exception as plot_err:
+                        if self.logger:
+                            self.logger.log(f"Warning: Failed to plot convergence for run {i+1}: {plot_err}")
                 
             # Salvar no results (file_logger) apenas os dados agregados ao final de todas as runs
             if getattr(self, 'file_logger', None) is not None:

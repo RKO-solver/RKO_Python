@@ -67,7 +67,7 @@ class HistoryPlotter:
 
     @staticmethod
     def plot_convergence(
-        file_path: str, 
+        history_or_path, 
         run_number: int = 1, 
         title: str = "Convergence History", 
         x_label: str = "Time (s)", 
@@ -78,7 +78,7 @@ class HistoryPlotter:
         Plots the convergence history for a specific run.
 
         Args:
-            file_path (str): Path to the log file.
+            history_or_path (list or str): Convergence history list of tuples or path to the log file.
             run_number (int): The run number to plot (1-indexed).
             title (str): Title of the plot.
             x_label (str): Label for the X-axis.
@@ -88,10 +88,14 @@ class HistoryPlotter:
         Returns:
             plt.Figure: The matplotlib figure object.
         """
-        history = HistoryPlotter.parse_log_file(file_path)
+        if isinstance(history_or_path, list):
+            history = [(mh, fit, t, 1) for mh, fit, t in history_or_path]
+            run_number = 1
+        else:
+            history = HistoryPlotter.parse_log_file(history_or_path)
         
         if not history:
-            print("No data extracted from log file.")
+            print("No data extracted for plotting.")
             # Return empty figure to avoid crash on .show()
             return plt.figure()
 

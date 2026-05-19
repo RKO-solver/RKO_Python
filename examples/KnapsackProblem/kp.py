@@ -22,18 +22,18 @@ class KnapsackProblem:
         self.tam_solution = self.n_items
         
         self.BRKGA_parameters = {
-            'p': [100, 50],          
+            'p': [1000, 500],          
             'pe': [0.20, 0.15],      
             'pm': [0.05],        
             'rhoe': [0.70]       
         }
 
         self.SA_parameters = {
-            'SAmax': [10, 5],     
-            'alphaSA': [0.5, 0.7],  
+            'SAmax': [100, 50],     
+            'alphaSA': [0.99, 0.9, 0.95],  
             'betaMin': [0.01, 0.03],   
             'betaMax': [0.05, 0.1],   
-            'T0': [10]      
+            'T0': [10000]      
         }
 
         
@@ -49,7 +49,7 @@ class KnapsackProblem:
         }
 
         self.PSO_parameters = {
-            'PSize': [100,50],     
+            'PSize': [1000,500],     
             'c1': [2.05],     
             'c2': [2.05],        
             'w': [0.73]         
@@ -57,7 +57,7 @@ class KnapsackProblem:
 
         
         self.GA_parameters = {
-            'sizePop': [100,50],    
+            'sizePop': [1000,500],    
             'probCros': [0.98],  
             'probMut': [0.005, 0.01]   
         }
@@ -66,7 +66,7 @@ class KnapsackProblem:
         self.LNS_parameters = {
             'betaMin': [0.10],   
             'betaMax': [0.30],  
-            'TO': [100],       
+            'TO': [10000],       
             'alphaLNS': [0.95,0.9] 
         }
 
