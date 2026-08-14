@@ -10,6 +10,8 @@ import bisect
 import itertools
 from multiprocessing import Manager, Process, cpu_count
 
+from pathlib import Path
+
 from .LogStrategy import LogStrategy, TerminalLogger, FileLogger, DualLogger, ParallelLogManager
 from .Environment import check_env
 
@@ -117,6 +119,10 @@ class RKO:
 
         # Configurar FileLogger (apenas para resultados finais) e TerminalLogger (para saída em tempo real e logs.txt)
         self.log_filepath = log_filepath
+        if log_filepath:
+            self._base_log_dir = os.path.dirname(os.path.abspath(log_filepath))
+        else:
+            self._base_log_dir = os.path.abspath(".")
         self.reset_log = reset_log
         self.file_logger = None
 
@@ -134,7 +140,6 @@ class RKO:
             elif logger_str == 'dual':
                 if not self.log_filepath:
                     raise ValueError("log_filepath must be provided when logger='dual'")
-                import os
                 self.file_logger = FileLogger(self.log_filepath, reset=self.reset_log)
                 log_dir = os.path.dirname(os.path.abspath(self.log_filepath))
                 logs_path = os.path.join(log_dir, 'logs.txt')
@@ -142,7 +147,6 @@ class RKO:
             elif logger_str == 'terminal':
                 self.logger = TerminalLogger(self.log_filepath, reset=self.reset_log) if self.log_filepath else TerminalLogger()
             elif self.log_filepath:
-                import os
                 self.file_logger = FileLogger(self.log_filepath, reset=self.reset_log)
                 log_dir = os.path.dirname(os.path.abspath(self.log_filepath))
                 logs_path = os.path.join(log_dir, 'logs.txt')
@@ -1371,26 +1375,156 @@ class RKO:
 
         return False
 
-    def solve(self, time_total: float, brkga: int = 0, ms: int = 0, sa: int = 0, vns: int = 0, ils: int = 0, lns: int = 0, pso: int = 0, ga: int = 0, restart: float = 1.0, runs: int = 1, plot: bool = False) -> tuple[float, list[float], float]:
-        """
-        Main execution method to run the RKO framework with parallel metaheuristics.
+    def solve(self, time_total: float, brkga: int = 0, ms: int = 0, sa: int = 0, vns: int = 0, ils: int = 0, lns: int = 0, pso: int = 0, ga: int = 0, restart: float = 1.0, runs: int = 1, plot: bool = False, backend: str = "python", work_directory: str | Path | None = None, cxx: str = "g++") -> tuple[float, list[float], float]:
+        """Main execution method to run RKO using either Python or C++ backend.
 
         Args:
-            time_total (float): Total time limit for the entire run.
-            brkga (int): Number of parallel BRKGA instances.
-            ms (int): Number of parallel MultiStart instances.
-            sa (int): Number of parallel SA instances.
-            vns (int): Number of parallel VNS instances.
-            ils (int): Number of parallel ILS instances.
-            lns (int): Number of parallel LNS instances.
-            pso (int): Number of parallel PSO instances.
-            ga (int): Number of parallel GA instances.
-            restart (float): Fraction of total time for each restart cycle.
-            runs (int): Number of times to repeat the entire experiment.
-            plot (bool): If True, plots convergence history for each run and saves it as an image.
+            time_total (float): Total execution time limit in seconds.
+            brkga (int): Count of parallel BRKGA workers.
+            ms (int): Count of parallel MultiStart workers.
+            sa (int): Count of parallel SA workers.
+            vns (int): Count of parallel VNS workers.
+            ils (int): Count of parallel ILS workers.
+            lns (int): Count of parallel LNS workers.
+            pso (int): Count of parallel PSO workers.
+            ga (int): Count of parallel GA workers.
+            restart (float): Restart cycle fraction.
+            runs (int): Number of experimental runs.
+            plot (bool): If True, plots convergence history.
+            backend (str): Execution engine ('python' or 'cpp'/'c++'/'native').
+            work_directory (str | Path | None): Directory for compiled C++ binaries (if backend='cpp').
+            cxx (str): Compiler binary for C++ compilation (default 'g++').
 
         Returns:
-            tuple: The final best cost, solution keys, and the time at which it was found.
+            tuple[float, list[float], float]: (best_cost, best_keys, time_at_best).
+        """
+        if not isinstance(backend, str):
+            raise TypeError("backend must be a string")
+        backend_choice = backend.lower().strip()
+        if backend_choice == "python":
+            return self.solve_python(time_total=time_total, brkga=brkga, ms=ms, sa=sa, vns=vns, ils=ils, lns=lns, pso=pso, ga=ga, restart=restart, runs=runs, plot=plot)
+        elif backend_choice in ("cpp", "c++", "native"):
+            return self.solve_cpp(time_total=time_total, brkga=brkga, ms=ms, sa=sa, vns=vns, ils=ils, lns=lns, pso=pso, ga=ga, restart=restart, runs=runs, plot=plot, work_directory=work_directory, cxx=cxx)
+        else:
+            raise ValueError(f"Unknown backend '{backend}'. Supported backends are 'python' or 'cpp'.")
+
+    def compile(self, output_directory: str | Path):
+        """Compiles the environment into C++20 Problem.h and instance snapshot."""
+        from .compiler import compile_environment
+        return compile_environment(self.env, output_directory)
+
+    def solve_cpp(self, time_total: float, brkga: int = 0, ms: int = 0, sa: int = 0, vns: int = 0, ils: int = 0, lns: int = 0, pso: int = 0, ga: int = 0, restart: float = 1.0, runs: int = 1, plot: bool = False, work_directory: str | Path | None = None, cxx: str = "g++") -> tuple[float, list[float], float]:
+        """Runs the RKO framework using the compiled C++20 native backend."""
+        from .compiler import RKOConfig, optimize_environment
+
+        native_counts = {
+            "BRKGA": brkga,
+            "MultiStart": ms,
+            "SA": sa,
+            "VNS": vns,
+            "ILS": ils,
+            "LNS": lns,
+            "PSO": pso,
+            "GA": ga,
+        }
+        for name, count in native_counts.items():
+            if isinstance(count, bool) or not isinstance(count, int):
+                raise TypeError(f"{name.lower()} must be an integer")
+            if count < 0:
+                raise ValueError(f"{name.lower()} must be non-negative")
+        repeated = [name for name, count in native_counts.items() if count > 1]
+        if repeated:
+            raise ValueError(
+                "The native V1 backend supports at most one worker per "
+                "metaheuristic; repeated C++ algorithms are not thread-safe: "
+                + ", ".join(repeated)
+            )
+
+        # Configurar pasta de resultados dinâmica (results_instance_time) se um log_filepath foi configurado ou se plot=True
+        output_dir = None
+        if self.log_filepath or plot:
+            import datetime
+            import os
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+            instance_base = os.path.splitext(self.env.instance_name)[0]
+            folder_name = f"results_{instance_base}_{timestamp}"
+
+            base_dir = getattr(self, '_base_log_dir', os.path.abspath("."))
+            output_dir = os.path.join(base_dir, folder_name)
+            os.makedirs(output_dir, exist_ok=True)
+
+            logs_filepath = os.path.join(output_dir, 'logs.txt')
+            results_filepath = os.path.join(output_dir, 'results.txt')
+
+            if self.file_logger is not None or plot or self.log_filepath:
+                self.file_logger = FileLogger(results_filepath, reset=True)
+
+            # Atualizar a estratégia de logs baseado no tipo previamente configurado
+            if self.logger is None:
+                pass
+            elif isinstance(self.logger, DualLogger):
+                self.logger = DualLogger(logs_filepath, reset=True)
+            elif isinstance(self.logger, FileLogger):
+                self.logger = FileLogger(logs_filepath, reset=True)
+            elif isinstance(self.logger, TerminalLogger):
+                self.logger = TerminalLogger(logs_filepath, reset=True)
+
+        check_env(self.env, time_total=time_total, brkga=brkga, ms=ms, sa=sa, vns=vns, ils=ils, lns=lns, pso=pso, ga=ga, restart=restart, runs=runs, backend="cpp")
+
+        algorithms = [name for name, count in native_counts.items() if count > 0]
+        if not algorithms:
+            algorithms.append("MultiStart")
+
+        # Human output is captured unless requested, but debug stays enabled so
+        # the public result retains the native Total time and Best time fields.
+        stream_native_output = (self.logger is not None) or plot
+
+        config = RKOConfig(
+            algorithms=tuple(algorithms),
+            max_runs=runs,
+            restart=restart,
+            debug=True,
+        )
+
+        if work_directory is None:
+            if output_dir:
+                work_directory = Path(output_dir) / "cpp_build"
+            else:
+                import tempfile
+                work_directory = Path(tempfile.mkdtemp(prefix="rko_native_"))
+        else:
+            work_directory = Path(work_directory)
+
+        if self.logger:
+            self.logger.log(f"[C++20 Pipeline] Compilando Problem.h com g++ e executando {len(algorithms)} metaheuristica(s) por {time_total}s via WSL (Aguarde)...")
+        else:
+            print(f"[C++20 Pipeline] Compilando Problem.h com g++ e executando {len(algorithms)} metaheuristica(s) por {time_total}s via WSL (Aguarde)...")
+
+        res = optimize_environment(
+            self.env,
+            work_directory=work_directory,
+            max_time_seconds=max(1, int(math.ceil(time_total))),
+            config=config,
+            cxx=cxx,
+            stream_stdout=stream_native_output,
+        )
+
+        best_cost = res.python_cost
+        best_keys = list(res.keys)
+        ttb = res.native_result.time_to_best if res.native_result.time_to_best is not None else 0.0
+
+        if getattr(self, 'file_logger', None) is not None:
+            summary = f"{self.env.instance_name}, {best_cost:.2f}, {best_cost:.2f}, [{best_cost:.2f}], {ttb:.2f}, [{ttb:.2f}]"
+            self.file_logger.log(summary)
+
+        if self.logger:
+            self.logger.log(f"[C++ Done] {self.env.instance_name}, Best OFV: {best_cost}, Time to Best: {ttb}s")
+
+        return best_cost, best_keys, ttb
+
+    def solve_python(self, time_total: float, brkga: int = 0, ms: int = 0, sa: int = 0, vns: int = 0, ils: int = 0, lns: int = 0, pso: int = 0, ga: int = 0, restart: float = 1.0, runs: int = 1, plot: bool = False) -> tuple[float, list[float], float]:
+        """
+        Runs the RKO framework in pure Python with multiprocessing.
         """
 
         # Configurar pasta de resultados dinâmica (results_instance_time) se um log_filepath foi configurado ou se plot=True
@@ -1401,20 +1535,16 @@ class RKO:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
             instance_base = os.path.splitext(self.env.instance_name)[0]
             folder_name = f"results_{instance_base}_{timestamp}"
-            
-            if self.log_filepath:
-                base_dir = os.path.dirname(os.path.abspath(self.log_filepath))
-            else:
-                base_dir = os.path.abspath(".")
-                
+
+            base_dir = getattr(self, '_base_log_dir', os.path.abspath("."))
             output_dir = os.path.join(base_dir, folder_name)
             os.makedirs(output_dir, exist_ok=True)
             
-            self.log_filepath = os.path.join(output_dir, 'results.txt')
             logs_filepath = os.path.join(output_dir, 'logs.txt')
+            results_filepath = os.path.join(output_dir, 'results.txt')
             
-            if self.file_logger is not None or plot:
-                self.file_logger = FileLogger(self.log_filepath, reset=True)
+            if self.file_logger is not None or plot or self.log_filepath:
+                self.file_logger = FileLogger(results_filepath, reset=True)
             
             # Atualizar a estratégia de logs baseado no tipo previamente configurado
             if self.logger is None:
@@ -1426,7 +1556,7 @@ class RKO:
             elif isinstance(self.logger, TerminalLogger):
                 self.logger = TerminalLogger(logs_filepath, reset=True)
 
-        check_env(self.env, time_total=time_total, brkga=brkga, ms=ms, sa=sa, vns=vns, ils=ils, lns=lns, pso=pso, ga=ga, restart=restart, runs=runs)
+        check_env(self.env, time_total=time_total, brkga=brkga, ms=ms, sa=sa, vns=vns, ils=ils, lns=lns, pso=pso, ga=ga, restart=restart, runs=runs, backend="python")
 
         solutions = []
         times = []
@@ -1487,8 +1617,18 @@ class RKO:
 
                     # Clear and populate the pool population to prevent empty pool race conditions
                     pool.pool = manager.list()
-                    for _ in range(20):
-                        keys = self.random_keys()
+                    seeds = []
+                    if hasattr(self.env, 'get_seed_keys'):
+                        try:
+                            seeds = self.env.get_seed_keys()
+                        except Exception as e:
+                            if self.logger:
+                                self.logger.log(f"[warning] Error getting seed keys: {e}")
+                    for idx in range(20):
+                        if idx < len(seeds):
+                            keys = seeds[idx]
+                        else:
+                            keys = self.random_keys()
                         cost = self.env.cost(self.env.decoder(keys))
                         pool.insert((cost, list(keys)), 'pool', -1)
                     for _ in range(brkga):

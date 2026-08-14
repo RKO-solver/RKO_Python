@@ -145,6 +145,26 @@ if check_env(my_env):
     print("Environment successfully validated.")
 ```
 
+### Experimental native compiler V1
+
+An initialized environment whose hot path belongs to the documented native
+subset can be compiled into the original C++ RKO's `Problem.h`:
+
+```python
+from rko.compiler import analyze_environment, optimize_environment
+
+report = analyze_environment(my_env)
+if report["supported"]:
+    result = optimize_environment(my_env, "native_run", max_time_seconds=10)
+    print(result.solution, result.python_cost)
+else:
+    print(report["diagnostics"])
+```
+
+The complete language contract, supported operations and adaptation rules are
+in [Native Decoder Language V1](docs/design/native_decoder_language_v1.md).
+Windows builds and tests invoke `g++` through WSL.
+
 ---
 
 ## 👥 Maintainers

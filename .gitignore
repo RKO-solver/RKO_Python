@@ -137,3 +137,10 @@ dmypy.json
 .vscode/
 .idea/
 .pypirc
+
+# RKO generated runtime/build artifacts
+results_*/
+cpp_build/
+RKO_C++/**/runRKO
+RKO_C++/**/runTest
+RKO_C++/**/Results/

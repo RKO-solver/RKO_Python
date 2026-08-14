@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rko"
-version = "0.2.1"
-description = "A Python library for Random-Key Optimization (RKO)."
+version = "0.3.0"
+description = "A Python library for Random-Key Optimization (RKO) with Ahead-of-Time C++20 Compiler."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 authors = [
   { name = "Felipe Silvestre Cardoso Roberto", email = "felipe.silvestre@unifesp.br" },
   { name = "João Assaoka", email = "joao.assaoka@unifesp.br" },
@@ -29,3 +29,6 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"rko.compiler" = ["cpp_template/**/*", "cpp_template/*", "cpp_template/config/*", "cpp_template/src/**/*", "cpp_template/src/*/*"]

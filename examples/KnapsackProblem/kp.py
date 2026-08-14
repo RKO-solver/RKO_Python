@@ -10,11 +10,19 @@ class KnapsackProblem:
     """
     An implementation of the Knapsack Problem environment for the RKO solver.
     """
+    n_items: int
+    capacity: int
+    profits: list[int]
+    weights: list[int]
+    tam_solution: int
+    LS_type: str
+    instance_name: str
+
     def __init__(self, instance_path: str):
         print(f"Loading Knapsack Problem instance from: {instance_path}")
 
         self.instance_name = os.path.basename(instance_path)
-        self.LS_type: str = 'Best' # Options: 'Best' or 'First'
+        self.LS_type = 'Best' # Options: 'Best' or 'First'
         self.dict_best: dict = {"Best": [-149]}
         self._load_data(instance_path)
 
@@ -22,18 +30,18 @@ class KnapsackProblem:
         self.tam_solution = self.n_items
         
         self.BRKGA_parameters = {
-            'p': [1000, 500],          
+            'p': [10000, 5000],
             'pe': [0.20, 0.15],      
             'pm': [0.05],        
             'rhoe': [0.70]       
         }
 
         self.SA_parameters = {
-            'SAmax': [100, 50],     
+            'SAmax': [1000, 500],
             'alphaSA': [0.99, 0.9, 0.95],  
             'betaMin': [0.01, 0.03],   
             'betaMax': [0.05, 0.1],   
-            'T0': [10000]      
+            'T0': [100000]
         }
 
         
@@ -49,7 +57,7 @@ class KnapsackProblem:
         }
 
         self.PSO_parameters = {
-            'PSize': [1000,500],     
+            'PSize': [10000,5000],
             'c1': [2.05],     
             'c2': [2.05],        
             'w': [0.73]         
@@ -89,7 +97,7 @@ class KnapsackProblem:
                     self.profits.append(p)
                     self.weights.append(w)
 
-    def decoder(self, keys: np.ndarray) -> list[int]:
+    def decoder(self, keys: list[float]) -> list[int]:
         """
         Decodes a random-key vector into a knapsack solution.
         An item is included if its corresponding key is > 0.5.
@@ -107,7 +115,7 @@ class KnapsackProblem:
         total_profit = 0
         total_weight = 0
         for i, item_included in enumerate(solution):
-            if item_included:
+            if item_included == 1:
                 total_profit += self.profits[i]
                 total_weight += self.weights[i]
 
@@ -118,10 +126,26 @@ class KnapsackProblem:
             
         # The RKO framework assumes a minimization problem by default,
         # so we return the negative of the profit.
-        return -total_profit
+        return float(-total_profit)
 
 if __name__ == "__main__":
     current_directory = os.path.dirname(os.path.abspath(__file__))
     env = KnapsackProblem(os.path.join(current_directory,'kp50.txt'))
-    solver = RKO(env, logger="dual", log_filepath=os.path.join(current_directory,'results.txt'))
-    solver.solve(time_total=30, brkga=1, lns=1, vns=1, ils=1, sa=1, pso=1, ga=1, runs=10, plot=True)
+    solver = RKO(env, logger="none", log_filepath=os.path.join(current_directory,'results.txt'))
+    solp = 0
+    solc = 0
+
+    temp = 0
+    temc = 0
+    for i in range(10):
+        ret1 = solver.solve(time_total=3, brkga=1, lns=1, vns=1, ils=1, sa=1, pso=1, ga=1, runs=1, plot=True, backend='cpp')
+        ret2 = solver.solve(time_total=3, brkga=1, lns=1, vns=1, ils=1, sa=1, pso=1, ga=1, runs=1, plot=True, backend='python')
+        print(i,ret1[0], ret2[0])
+        solc += ret1[0]
+        solp += ret2[0]
+        temc += ret1[2]
+        temp += ret2[2]
+
+    print(temc/10, solc/10)
+
+    print(temp/10, solp/10)

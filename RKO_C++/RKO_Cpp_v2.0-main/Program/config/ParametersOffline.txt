@@ -1,0 +1,48 @@
+BRKGA
+p    = {987}
+pe   = {0.20}
+pm   = {0.15}
+rhoe = {0.65}
+
+SA
+SAmax   = {1000}
+alphaSA = {0.99}
+betaMin = {0.01}
+betaMax = {0.05}
+T0      = {1000000}
+
+GRASP
+alphaGrasp = {0.10}
+hs = {0.125}
+he = {0.00098}
+
+ILS
+betaMin = {0.10}
+betaMax = {0.20}
+
+VNS
+kMax = {5}
+betaMin = {0.05}
+
+PSO
+PSize = {200}
+c1 = {2.05}
+c2 = {2.05}
+w  = {0.73}
+
+GA
+sizePop  = {400}
+probCros = {0.98}
+probMut  = {0.005}
+
+LNS
+betaMin = {0.10}
+betaMax = {0.30}
+TO = {10000}
+alphaLNS = {0.95}
+
+BRKGA-CS
+p    = {610}
+pe   = {0.20}
+pm   = {0.001}
+Rhoe = {0.65}
