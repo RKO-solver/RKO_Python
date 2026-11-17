@@ -5,13 +5,13 @@
 
 The **Random-Key Optimizer (RKO)** is a high-performance, parallel metaheuristic framework designed for combinatorial optimization problems. By mapping discrete, high-dimensional search spaces onto a continuous unit hypercube $[0, 1)^n$, RKO detaches optimization algorithms from problem-specific logic.
 
-RKO orchestrates up to **9 parallel metaheuristic workers** using Python's native multiprocessing. Workers cooperate in real time by feeding and pulling elite solutions from a thread-safe, shared **Solution Pool**, accelerating convergence and improving optimization robustness.
+RKO orchestrates up to **10 parallel metaheuristic workers** using Python's native multiprocessing. Workers cooperate in real time by feeding and pulling elite solutions from a thread-safe, shared **Solution Pool**, accelerating convergence and improving optimization robustness.
 
 ---
 
 ## 💎 Core Features
 
-- **9 Concurrent Metaheuristics:** Run **BRKGA, Multi-Start, SA, VNS, ILS, LNS, PSO, GA, and GRASP** concurrently.
+- **10 Concurrent Metaheuristics:** Run **BRKGA, Multi-Start, SA, VNS, ILS, LNS, PSO, GA, GRASP, and IPR** concurrently.
 - **Online hyperparameters tuning via Q-learning**
 - **Collaborative Search:** Thread-safe `SolutionPool` sharing elite solutions to pull workers out of local minima.
 - **Automatic Result Structuring:** Automatically groups execution runs, creating a dedicated timestamped folder (`results_{instance}_{timestamp}/`) containing:
@@ -58,6 +58,7 @@ final_cost, final_solution, time_to_best = rko_solver.solve(
     pso=1,              # Number of parallel PSO instances
     ga=1,               # Number of parallel GA instances
     grasp=1,            # Number of parallel GRASP instances
+    ipr=1,              # Number of parallel IPR instances
     restart=1.0,        # Fraction of total time for each restart cycle
     runs=10,            # Number of independent trials
     plot=True           # Enable automatic convergence plotting (generates .png charts)
@@ -118,6 +119,8 @@ class RKOEnv():
         self.PSO_parameters = {'PSize': [1000], 'c1': [2.05], 'c2': [2.05], 'w': [0.73]}
         self.GA_parameters = {'sizePop': [1000], 'probCros': [0.98], 'probMut': [0.005]}
         self.GRASP_parameters = {'alphaGrasp': [0.1, 0.3], 'hs': [0.125], 'he': [0.00098]}
+        # Multi-Start (ms) and IPR (ipr) need no parameter dictionary. IPR only recombines
+        # the elite solutions of the pool, so run it together with other metaheuristics.
 
   
     def decoder(self, keys: np.ndarray):

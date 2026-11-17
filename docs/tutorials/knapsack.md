@@ -120,7 +120,7 @@ if __name__ == "__main__":
     solver = RKO(env, logger=logger)
     
     # 4. Solves with all heuristics combined over 30s limit overall
-    solver.solve(time_total=30, brkga=1, lns=1, vns=1, ils=1, sa=1, pso=1, ga=1, grasp=1, runs=2)
+    solver.solve(time_total=30, brkga=1, lns=1, vns=1, ils=1, sa=1, pso=1, ga=1, grasp=1, ipr=1, runs=2)
     
     # 5. Output Graphics
     HistoryPlotter.plot_convergence(os.path.join(current_directory, 'results.txt'), run_number=1).show()

@@ -1469,6 +1469,88 @@ class RKO:
         final_cost_value = self.env.cost(final_cost_solution)
         return [], best_keys, final_cost_value
 
+    def IPR(self, tag, pool):
+        """
+        Executes the Implicit Path Relinking (IPR). In each iteration two elite solutions are chosen from the pool and a path is built from the current solution towards the guide solution, replacing one block of keys at a time with the block that reaches the best cost. The best solution of the path is sent to the pool.
+
+        Args:
+            tag (int): An identifier for this metaheuristic instance.
+            pool (SolutionPool): The shared solution pool.
+
+        Returns:
+            tuple: An empty list, the best keys found, and their final cost.
+        """
+        metaheuristic_name = f"IPR {tag}"
+        limit_time = self.max_time
+        n = self.__MAX_KEYS
+
+        # contiguous blocks with 10% of the keys, the last block also takes the keys left over by the division
+        block_size = max(1, int(n * 0.10))
+        num_block = n // block_size
+        blocks = [(i * block_size, n if i == num_block - 1 else (i + 1) * block_size) for i in range(num_block)]
+
+        start_time = time.time()
+        current_time = 0
+        best_keys = None
+        best_cost = float('inf')
+
+        while current_time < limit_time:
+            if self.stop_condition(best_cost, metaheuristic_name, tag, pool=pool):
+                return [], best_keys, best_cost
+
+            # randomly choose two elite solutions
+            pool_list = list(pool.pool)
+            k1, k2 = random.sample(range(len(pool_list)), 2)
+            s_current = np.array(pool_list[k1][1])
+            guia = np.array(pool_list[k2][1])
+
+            # blocks in which the two solutions differ
+            free_blocks = [i for i, (a, b) in enumerate(blocks) if not np.array_equal(s_current[a:b], guia[a:b])]
+
+            best_path = None
+            best_path_cost = float('inf')
+
+            # the path stops one block before the guide
+            while len(free_blocks) > 1:
+                best_block = -1
+                best_iteration_cost = float('inf')
+
+                # examine every neighbor that copies one block of the guide into the current solution
+                for i in free_blocks:
+                    a, b = blocks[i]
+                    s_viz = s_current.copy()
+                    s_viz[a:b] = guia[a:b]
+                    s_viz_cost = self.env.cost(self.env.decoder(s_viz))
+
+                    if s_viz_cost < best_iteration_cost:
+                        best_iteration = s_viz
+                        best_iteration_cost = s_viz_cost
+                        best_block = i
+
+                # no neighbor with a finite cost, the path cannot go on
+                if best_block < 0:
+                    break
+
+                if best_iteration_cost < best_path_cost:
+                    best_path = best_iteration
+                    best_path_cost = best_iteration_cost
+
+                # continue the search from the best solution of the iteration
+                s_current = best_iteration
+                free_blocks.remove(best_block)
+
+            current_time = time.time() - start_time
+
+            if best_path_cost < best_cost:
+                best_keys = best_path
+                best_cost = best_path_cost
+
+            # as in the C++ pool, a solution is not inserted when its cost is already in the pool
+            if best_path is not None and all(cost != best_path_cost for cost, _ in list(pool.pool)):
+                pool.insert((best_path_cost, list(best_path)), metaheuristic_name, tag)
+
+        return [], best_keys, best_cost
+
     def stop_condition(self, best_cost, metaheuristic_name, tag, pool=None):
         """
         Checks if the termination condition for the search has been met.
@@ -1528,7 +1610,7 @@ class RKO:
 
         return False
 
-    def solve(self, time_total: float, brkga: int = 0, ms: int = 0, sa: int = 0, vns: int = 0, ils: int = 0, lns: int = 0, pso: int = 0, ga: int = 0, grasp: int = 0, restart: float = 1.0, runs: int = 1, plot: bool = False) -> tuple[float, list[float], float]:
+    def solve(self, time_total: float, brkga: int = 0, ms: int = 0, sa: int = 0, vns: int = 0, ils: int = 0, lns: int = 0, pso: int = 0, ga: int = 0, grasp: int = 0, ipr: int = 0, restart: float = 1.0, runs: int = 1, plot: bool = False) -> tuple[float, list[float], float]:
         """
         Main execution method to run the RKO framework with parallel metaheuristics.
 
@@ -1543,6 +1625,7 @@ class RKO:
             pso (int): Number of parallel PSO instances.
             ga (int): Number of parallel GA instances.
             grasp (int): Number of parallel GRASP instances.
+            ipr (int): Number of parallel IPR instances.
             restart (float): Fraction of total time for each restart cycle.
             runs (int): Number of times to repeat the entire experiment.
             plot (bool): If True, plots convergence history for each run and saves it as an image.
@@ -1584,7 +1667,7 @@ class RKO:
             elif isinstance(self.logger, TerminalLogger):
                 self.logger = TerminalLogger(logs_filepath, reset=True)
 
-        check_env(self.env, time_total=time_total, brkga=brkga, ms=ms, sa=sa, vns=vns, ils=ils, lns=lns, pso=pso, ga=ga, grasp=grasp, restart=restart, runs=runs)
+        check_env(self.env, time_total=time_total, brkga=brkga, ms=ms, sa=sa, vns=vns, ils=ils, lns=lns, pso=pso, ga=ga, grasp=grasp, ipr=ipr, restart=restart, runs=runs)
 
         solutions = []
         times = []
@@ -1726,6 +1809,15 @@ class RKO:
                         processes.append(p)
                         p.start()
 
+                    for _ in range(ipr):
+                        p = Process(
+                            target=_IPR_worker,
+                            args=(self.env, self.max_time, pool, tag, worker_logger)
+                        )
+                        tag += 1
+                        processes.append(p)
+                        p.start()
+
                     # Monitor processes and check for early termination via stop_event
                     start_wait = time.time()
                     while time.time() - start_wait < self.max_time:
@@ -1832,6 +1924,11 @@ def _GA_worker(env, limit_time, pool, tag, logger):
     runner = RKO(env, logger)
     runner.max_time = limit_time
     _, local_keys, local_best = runner.GA(tag=tag, pool=pool)
+
+def _IPR_worker(env, limit_time, pool, tag, logger):
+    runner = RKO(env, logger)
+    runner.max_time = limit_time
+    _, local_keys, local_best = runner.IPR(tag, pool)
 
 
 class QLearningManager:

@@ -130,4 +130,4 @@ if __name__ == "__main__":
     current_directory = os.path.dirname(os.path.abspath(__file__))
     env = KnapsackProblem(os.path.join(current_directory,'kp50.txt'))
     solver = RKO(env, logger="dual", log_filepath=os.path.join(current_directory,'results.txt'))
-    solver.solve(time_total=30, brkga=1, lns=1, vns=1, ils=1, sa=1, pso=1, ga=1, runs=10, plot=True)
+    solver.solve(time_total=30, brkga=1, lns=1, vns=1, ils=1, sa=1, pso=1, ga=1, grasp=1, ipr=1, runs=10, plot=True)
