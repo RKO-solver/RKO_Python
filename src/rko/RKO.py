@@ -1482,6 +1482,12 @@ class RKO:
         """
         metaheuristic_name = f"IPR {tag}"
         limit_time = self.max_time
+        n = self.__MAX_KEYS
+
+        # contiguous blocks with 10% of the keys, the last block also takes the keys left over by the division
+        block_size = max(1, int(n * 0.10))
+        num_block = n // block_size
+        blocks = [(i * block_size, n if i == num_block - 1 else (i + 1) * block_size) for i in range(num_block)]
 
         start_time = time.time()
         current_time = 0
@@ -1495,68 +1501,43 @@ class RKO:
             # randomly choose two elite solutions
             pool_list = list(pool.pool)
             k1, k2 = random.sample(range(len(pool_list)), 2)
-
-            atual = np.array(pool_list[k1][1])
+            s_current = np.array(pool_list[k1][1])
             guia = np.array(pool_list[k2][1])
 
-            best_path = atual
-            best_path_cost = pool_list[k1][0]
-            best_iteration = atual
-            s_current = atual
+            # blocks in which the two solutions differ
+            free_blocks = [i for i, (a, b) in enumerate(blocks) if not np.array_equal(s_current[a:b], guia[a:b])]
 
-            direction = 1                                       # internal (1) or external (-1) IPR
+            best_path = None
+            best_path_cost = float('inf')
 
-            # contiguous blocks with 10% of the keys, the last block also takes the keys left over by the division
-            block_size = max(1, int(self.__MAX_KEYS * 0.10))
-            num_block = self.__MAX_KEYS // block_size
-            fixed_block = [1] * num_block                       # whether a block will be swapped (0) or not (1)
-            dist = 0                                            # number of different keys
+            # the path stops one block before the guide
+            while len(free_blocks) > 1:
+                best_block = -1
+                best_iteration_cost = float('inf')
 
-            # calculates the difference between the solutions (measured by the number of different blocks)
-            for i in range(self.__MAX_KEYS):
-                if atual[i] != guia[i]:
-                    fixed_block[min(i // block_size, num_block - 1)] = 0
-                    dist += 1
+                # examine every neighbor that copies one block of the guide into the current solution
+                for i in free_blocks:
+                    a, b = blocks[i]
+                    s_viz = s_current.copy()
+                    s_viz[a:b] = guia[a:b]
+                    s_viz_cost = self.env.cost(self.env.decoder(s_viz))
 
-            if dist > 0:
-                best_path_cost = float('inf')
+                    if s_viz_cost < best_iteration_cost:
+                        best_iteration = s_viz
+                        best_iteration_cost = s_viz_cost
+                        best_block = i
 
-                # continue while more than one block differs, so the path stops one block before the guide
-                while fixed_block.count(0) > 1:
-                    best_block = -1
-                    best_iteration_cost = float('inf')
+                # no neighbor with a finite cost, the path cannot go on
+                if best_block < 0:
+                    break
 
-                    # examine all possible blocks in a IPR iteration
-                    for i in range(num_block):
-                        if fixed_block[i] == 0:
-                            initial_block = i * block_size
-                            final_block = self.__MAX_KEYS if i == num_block - 1 else initial_block + block_size
+                if best_iteration_cost < best_path_cost:
+                    best_path = best_iteration
+                    best_path_cost = best_iteration_cost
 
-                            # generate a neighbor of the current solution
-                            s_viz = copy.deepcopy(s_current)
-                            for k in range(initial_block, final_block):
-                                if direction == 1:
-                                    s_viz[k] = guia[k]
-                                elif direction == -1:
-                                    s_viz[k] = max(0.0, min(1.0 - guia[k], 0.999999))
-                            s_viz_cost = self.env.cost(self.env.decoder(s_viz))
-
-                            if s_viz_cost < best_iteration_cost:
-                                best_iteration = s_viz
-                                best_iteration_cost = s_viz_cost
-                                best_block = i
-
-                    if best_iteration_cost < best_path_cost:
-                        best_path = best_iteration
-                        best_path_cost = best_iteration_cost
-
-                    # continue the search from the best solution of the iteration
-                    if best_block >= 0:
-                        s_current = best_iteration
-                        fixed_block[best_block] = 1
-                    # no neighbor with a finite cost, the path cannot go on
-                    else:
-                        break
+                # continue the search from the best solution of the iteration
+                s_current = best_iteration
+                free_blocks.remove(best_block)
 
             current_time = time.time() - start_time
 
@@ -1564,8 +1545,8 @@ class RKO:
                 best_keys = best_path
                 best_cost = best_path_cost
 
-            # only a solution with a finite cost is inserted and, as in the C++ pool, not when its cost is already in the pool
-            if best_path_cost < float('inf') and all(cost != best_path_cost for cost, _ in list(pool.pool)):
+            # as in the C++ pool, a solution is not inserted when its cost is already in the pool
+            if best_path is not None and all(cost != best_path_cost for cost, _ in list(pool.pool)):
                 pool.insert((best_path_cost, list(best_path)), metaheuristic_name, tag)
 
         return [], best_keys, best_cost

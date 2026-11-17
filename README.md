@@ -119,6 +119,8 @@ class RKOEnv():
         self.PSO_parameters = {'PSize': [1000], 'c1': [2.05], 'c2': [2.05], 'w': [0.73]}
         self.GA_parameters = {'sizePop': [1000], 'probCros': [0.98], 'probMut': [0.005]}
         self.GRASP_parameters = {'alphaGrasp': [0.1, 0.3], 'hs': [0.125], 'he': [0.00098]}
+        # Multi-Start (ms) and IPR (ipr) need no parameter dictionary. IPR only recombines
+        # the elite solutions of the pool, so run it together with other metaheuristics.
 
   
     def decoder(self, keys: np.ndarray):
