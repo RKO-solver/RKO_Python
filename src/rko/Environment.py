@@ -2,7 +2,7 @@
 Utility functions for RKO Environment validation.
 """
 
-def check_env(env_instance, silent=False, time_total=None, brkga=0, ms=0, sa=0, vns=0, ils=0, lns=0, pso=0, ga=0, grasp=0, restart=1, runs=1):
+def check_env(env_instance, silent=False, time_total=None, brkga=0, ms=0, sa=0, vns=0, ils=0, lns=0, pso=0, ga=0, grasp=0, ipr=0, restart=1, runs=1):
     """
     Verifies that a given environment instance correctly implements the RKO environment interface.
     If the verification passes and silent is False, it prints a beautifully formatted summary of the test configuration.
@@ -21,6 +21,7 @@ def check_env(env_instance, silent=False, time_total=None, brkga=0, ms=0, sa=0, 
         pso (int): Number of parallel PSO instances requested.
         ga (int): Number of parallel GA instances requested.
         grasp (int): Number of parallel GRASP instances requested.
+        ipr (int): Number of parallel IPR instances requested.
         restart (float): Fraction of total time for each restart cycle.
         runs (int): Number of times to repeat the experiment.
 
@@ -62,13 +63,14 @@ def check_env(env_instance, silent=False, time_total=None, brkga=0, ms=0, sa=0, 
         'PSO': (pso, 'PSO_parameters'),
         'GA': (ga, 'GA_parameters'),
         'LNS': (lns, 'LNS_parameters'),
-        'MS': (ms, 'MS_parameters')
+        'MS': (ms, 'MS_parameters'),
+        'IPR': (ipr, 'IPR_parameters')
     }
     
     for name, (count, attr_name) in requested_solvers.items():
         if count > 0:
-            if name == 'MS':
-                continue  # MultiStart relies strictly on local search / doesn't require extra parameters
+            if name in ('MS', 'IPR'):
+                continue  # MultiStart relies strictly on local search and IPR on the pool / don't require extra parameters
             if not hasattr(env_instance, attr_name):
                 missing_elements.append(f"[ERROR] Missing Parameter Dictionary: '{attr_name}' (required because {name} is active with count={count})")
             else:
@@ -117,7 +119,7 @@ def check_env(env_instance, silent=False, time_total=None, brkga=0, ms=0, sa=0, 
         for name, (count, attr_name) in requested_solvers.items():
             if count > 0:
                 any_active = True
-                if name == 'MS':
+                if name in ('MS', 'IPR'):
                     print(f"    > {name:<6} [x{count}]: (No parameters required)")
                 else:
                     params = getattr(env_instance, attr_name)
